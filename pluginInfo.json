@@ -1,0 +1,20 @@
+{
+	"repoName": "fpp-brightness",
+	"name": "Brightness Control Plugin for FPP",
+	"author": "Daniel Kulp (dkulp)",
+	"description": "This plugin allows dynamic/real time control of the brightness of the display.",
+	"homeURL": "https://github.com/FalconChristmas/fpp-brightness",
+	"srcURL": "https://github.com/FalconChristmas/fpp-brightness.git",
+	"bugURL": "https://github.com/FalconChristmas/fpp-brightness/issues",
+	"allowUpdates": 1,
+	"versions": [
+		{
+			"minFPPVersion": "3.3",
+			"maxFPPVersion": "0",
+			"branch": "master",
+			"sha": "",
+			"dependencies": {
+			}
+		}
+	]
+}
