@@ -45,7 +45,7 @@ public:
         std::string v = std::to_string(brightness);
         return httpserver::http_response_builder(v, 200);
     }
-    virtual void multiSyncData(uint8_t *data, int len) {
+    virtual void multiSyncData(const uint8_t *data, int len) override {
         std::vector<std::string> v;
         std::string s = (char*)data;
         int start = 0;
@@ -109,7 +109,7 @@ public:
         }
     }
 
-    void registerApis(httpserver::webserver *m_ws) {
+    void registerApis(httpserver::webserver *m_ws) override {
         m_ws->register_resource("/Brightness", this, true);
         
         std::function<void(const std::string &topic, const std::string &payload)> f = [this](const std::string &topic, const std::string &payload){
@@ -120,7 +120,7 @@ public:
         }
     }
     
-    virtual void modifyChannelData(int ms, uint8_t *seqData) {
+    virtual void modifyChannelData(int ms, uint8_t *seqData) override {
         if (startFadeTime != -1) {
             if (ms >= endFadeTime) {
                 startFadeTime = -1;
