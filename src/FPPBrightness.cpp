@@ -135,7 +135,7 @@ public:
         for (auto &a : GetOutputRanges()) {
             int len = a.second;
             for (int x = 0, start = a.first; x < len; x++, start++) {
-                seqData[x] = map[seqData[x]];
+                seqData[start] = map[seqData[start]];
             }
         }
         lastms = ms;
