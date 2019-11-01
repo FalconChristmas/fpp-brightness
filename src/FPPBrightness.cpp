@@ -21,13 +21,50 @@
 #include "mqtt.h"
 #include "MultiSync.h"
 
+#if __has_include("fppversion_defines.h")
+#include "fppversion_defines.h"
+#else
+#define FPP_MAJOR_VERSION 3
+#define FPP_MINOR_VERSION 4
+#endif
+
+#if __has_include("commands/Commands.h")
+#include "commands/Commands.h"
+#endif
+
 class FPPBrightnessPlugin : public FPPPlugin, public httpserver::http_resource {
 public:
     
     FPPBrightnessPlugin() : FPPPlugin("fpp-brightness") {
         setBrightness(100, false);
+        registerCommand();
     }
     virtual ~FPPBrightnessPlugin() {}
+    
+#if FPP_MAJOR_VERSION > 3 || FPP_MINOR_VERSION > 4
+    class SetBrightnessCommand : public Command {
+    public:
+        SetBrightnessCommand(FPPBrightnessPlugin *p) : Command("Brightness"), plugin(p) {
+            args.push_back(CommandArg("brightness", "int", "Brightness").setRange(0, 200).setDefaultValue("100"));
+        }
+        
+        virtual std::unique_ptr<Command::Result> run(const std::vector<std::string> &args) override {
+            int brightness = 100;
+            if (args.size() >= 1) {
+                brightness = std::stoi(args[0]);
+            }
+            plugin->setBrightness(brightness);
+            return std::make_unique<Command::Result>("Brightness Set");
+        }
+        FPPBrightnessPlugin *plugin;
+    };
+    void registerCommand() {
+        CommandManager::INSTANCE.addCommand(new SetBrightnessCommand(this));
+    }
+#else
+    void registerCommand() {}
+#endif
+    
     
     virtual const httpserver::http_response render_GET(const httpserver::http_request &req) override {
         
