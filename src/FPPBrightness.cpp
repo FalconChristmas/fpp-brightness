@@ -46,14 +46,19 @@ public:
     public:
         SetBrightnessCommand(FPPBrightnessPlugin *p) : Command("Brightness"), plugin(p) {
             args.push_back(CommandArg("brightness", "int", "Brightness").setRange(0, 200).setDefaultValue("100"));
+            args.push_back(CommandArg("remotes", "bool", "Send to Remotes").setDefaultValue("true"));
         }
         
         virtual std::unique_ptr<Command::Result> run(const std::vector<std::string> &args) override {
             int brightness = 100;
+            bool remotes = true;
             if (args.size() >= 1) {
                 brightness = std::stoi(args[0]);
             }
-            plugin->setBrightness(brightness);
+            if (args.size() >= 2) {
+                remotes= args[1] == "true" || args[1] == "1";
+            }
+            plugin->setBrightness(brightness, remotes);
             return std::make_unique<Command::Result>("Brightness Set");
         }
         FPPBrightnessPlugin *plugin;
