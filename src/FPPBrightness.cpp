@@ -45,7 +45,9 @@ public:
     class SetBrightnessCommand : public Command {
     public:
         SetBrightnessCommand(FPPBrightnessPlugin *p) : Command("Brightness"), plugin(p) {
-            args.push_back(CommandArg("brightness", "int", "Brightness").setRange(0, 200).setDefaultValue("100"));
+            args.push_back(CommandArg("brightness", "int", "Brightness").setRange(0, 200)
+                           .setDefaultValue("100")
+                           .setGetAdjustableValueURL("api/plugin-apis/Brightness"));
             args.push_back(CommandArg("remotes", "bool", "Send to Remotes").setDefaultValue("true"));
         }
         
