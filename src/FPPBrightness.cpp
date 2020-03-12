@@ -72,8 +72,11 @@ public:
     void registerCommand() {}
 #endif
     
-    
+#if FPP_MAJOR_VERSION >= 4
+    virtual const std::shared_ptr<httpserver::http_response> render_GET(const httpserver::http_request &req) override {
+#else
     virtual const httpserver::http_response render_GET(const httpserver::http_request &req) override {
+#endif
         
         std::string p0 = req.get_path_pieces()[0];
         int plen = req.get_path_pieces().size();
@@ -87,7 +90,11 @@ public:
         }
         
         std::string v = std::to_string(brightness);
+#if FPP_MAJOR_VERSION >= 4
+        return std::shared_ptr<httpserver::http_response>(new httpserver::string_response(v, 200));
+#else
         return httpserver::http_response_builder(v, 200);
+#endif
     }
     virtual void multiSyncData(const uint8_t *data, int len) override {
         std::vector<std::string> v;
