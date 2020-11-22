@@ -12,6 +12,7 @@
 #include <cmath>
 
 #include <httpserver.hpp>
+#include <jsoncpp/json/json.h>
 #include "common.h"
 #include "settings.h"
 #include "Plugin.h"
@@ -36,7 +37,16 @@ class FPPBrightnessPlugin : public FPPPlugin, public httpserver::http_resource {
 public:
     
     FPPBrightnessPlugin() : FPPPlugin("fpp-brightness") {
-        setBrightness(100, false);
+        int startBrightness = 100;
+        if (FileExists("/home/fpp/media/config/plugin.fpp-brightness.json")) {
+            Json::Value root;
+            if (LoadJsonFromFile("/home/fpp/media/config/plugin.fpp-brightness.json", root)) {
+                if (root.isMember("brightness")) {
+                    startBrightness = root["brightness"].asInt();
+                }
+            }
+        }
+        setBrightness(startBrightness, false);
         registerCommand();
     }
     virtual ~FPPBrightnessPlugin() {}
@@ -207,6 +217,9 @@ public:
                 }
                 map[x] = newb;
             }
+            Json::Value val;
+            val["brightness"] = i;
+            SaveJsonToFile(val, "/home/fpp/media/config/plugin.fpp-brightness.json");
         }
         if (sendSync && getFPPmode() == MASTER_MODE) {
             std::string s = std::to_string(i);
