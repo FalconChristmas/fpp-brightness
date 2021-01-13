@@ -56,27 +56,49 @@ public:
     public:
         SetBrightnessCommand(FPPBrightnessPlugin *p) : Command("Brightness"), plugin(p) {
             args.push_back(CommandArg("brightness", "int", "Brightness").setRange(0, 200)
-                           .setDefaultValue("100")
-                           .setGetAdjustableValueURL("api/plugin-apis/Brightness"));
-            args.push_back(CommandArg("remotes", "bool", "Send to Remotes").setDefaultValue("true"));
+                           .setDefaultValue("100"));
         }
         
         virtual std::unique_ptr<Command::Result> run(const std::vector<std::string> &args) override {
             int brightness = 100;
-            bool remotes = true;
             if (args.size() >= 1) {
                 brightness = std::stoi(args[0]);
             }
-            if (args.size() >= 2) {
-                remotes= args[1] == "true" || args[1] == "1";
-            }
-            plugin->setBrightness(brightness, remotes);
+            plugin->resetFade();
+            plugin->setBrightness(brightness, false);
             return std::make_unique<Command::Result>("Brightness Set");
         }
         FPPBrightnessPlugin *plugin;
     };
+
+    class FadeBrightnessCommand : public Command {
+    public:
+        FadeBrightnessCommand(FPPBrightnessPlugin *p) : Command("Brightness Fade"), plugin(p) {
+            args.push_back(CommandArg("brightness", "int", "End brightness").setRange(0, 200)
+                           .setDefaultValue("100"));
+            args.push_back(CommandArg("duration", "int", "Duration (seconds)").setRange(0, 14400)
+                           .setDefaultValue("60"));
+        }
+
+        virtual std::unique_ptr<Command::Result> run(const std::vector<std::string> &args) override {
+            int newBrightness = 100;
+            int duration = 60;
+            if (args.size() >= 1) {
+                newBrightness = std::stoi(args[0]);
+            }
+            if (args.size() >= 2) {
+                duration = std::stoi(args[1]);
+            }
+            plugin->fade(newBrightness, duration);
+            return std::make_unique<Command::Result>("Brightness Fade");
+        }
+
+        FPPBrightnessPlugin *plugin;
+    };
+
     void registerCommand() {
         CommandManager::INSTANCE.addCommand(new SetBrightnessCommand(this));
+        CommandManager::INSTANCE.addCommand(new FadeBrightnessCommand(this));
     }
 #else
     void registerCommand() {}
@@ -182,14 +204,17 @@ public:
     }
     
     virtual void modifyChannelData(int ms, uint8_t *seqData) override {
+        // We need real time, not sequence time in case a sequence is not
+        // running, so use GetTimeMS here instead of passed-in ms.
+        lastms = GetTimeMS();
+
         if (startFadeTime != -1) {
-            if (ms >= endFadeTime) {
+            if (lastms >= endFadeTime) {
                 startFadeTime = -1;
                 setBrightness(endFadeBrightness, false);
             } else {
-                float f = (ms - startFadeTime)/(endFadeTime - startFadeTime);
-                float newb = f * (endFadeBrightness - startFadeBrightness);
-                newb = startFadeBrightness + newb;
+                float f = 1.0 * (lastms - startFadeTime)/(endFadeTime - startFadeTime);
+                int newb = (int)(f * (endFadeBrightness - startFadeBrightness)) + startFadeBrightness;
                 setBrightness(newb, false);
             }
         }
@@ -199,7 +224,6 @@ public:
                 seqData[start] = map[seqData[start]];
             }
         }
-        lastms = ms;
     }
     
     void setBrightness(int i, bool sendSync = true) {
@@ -227,14 +251,29 @@ public:
             multiSync->SendPluginData(name, (uint8_t*)s.c_str(), len);
         }
     }
+
+    void resetFade() {
+        startFadeTime = -1;
+    }
+
+    void fade(int newBrightness, int duration = 60) {
+        startFadeBrightness = brightness;
+        endFadeBrightness = newBrightness;
+        startFadeTime = lastms;
+        endFadeTime = lastms + (duration * 1000);
+
+        LogDebug(VB_PLUGIN, "Setup fade from %d-%d for time %d-%d (%d ms)\n",
+            startFadeBrightness, endFadeBrightness,
+            startFadeTime, endFadeTime, endFadeTime - startFadeTime);
+    }
     
-    int startFadeTime = -1;
-    int endFadeTime = 0;
+    long long startFadeTime = -1;
+    long long endFadeTime = 0;
     int startFadeBrightness = 0;
     int endFadeBrightness = 0;
     
     int brightness = -1;
-    int lastms = 0;
+    long long lastms = 0;
     uint8_t map[256];
 };
 

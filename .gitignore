@@ -30,3 +30,6 @@
 *.exe
 *.out
 *.app
+
+# Allow linking into plugin dir during development
+.linkOK

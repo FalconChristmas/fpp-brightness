@@ -16,6 +16,9 @@ class Logger(object):
         self.terminal.write(message)
         self.log.write(message)
 
+    def flush(self):
+        pass
+
 sys.stdout = Logger("/home/fpp/media/logs/fpp-brightness.log")
 
 parser = argparse.ArgumentParser(description='Brightness Plugin')
