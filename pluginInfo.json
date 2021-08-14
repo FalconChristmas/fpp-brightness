@@ -10,11 +10,15 @@
 	"versions": [
 		{
 			"minFPPVersion": "3.3",
-			"maxFPPVersion": "0",
+			"maxFPPVersion": "4.99",
 			"branch": "master",
-			"sha": "",
-			"dependencies": {
-			}
-		}
+			"sha": "a27c0b6b91c87ee82c0384053867b725c80f7265"
+		},
+                {
+                        "minFPPVersion": "5.0",
+                        "maxFPPVersion": "0",
+                        "branch": "master",
+                        "sha": ""
+                }
 	]
 }

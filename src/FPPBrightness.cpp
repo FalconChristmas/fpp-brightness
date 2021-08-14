@@ -22,16 +22,8 @@
 #include "mqtt.h"
 #include "MultiSync.h"
 
-#if __has_include("fppversion_defines.h")
 #include "fppversion_defines.h"
-#else
-#define FPP_MAJOR_VERSION 3
-#define FPP_MINOR_VERSION 4
-#endif
-
-#if __has_include("commands/Commands.h")
 #include "commands/Commands.h"
-#endif
 
 class FPPBrightnessPlugin : public FPPPlugin, public httpserver::http_resource {
 public:
@@ -51,7 +43,6 @@ public:
     }
     virtual ~FPPBrightnessPlugin() {}
     
-#if FPP_MAJOR_VERSION > 3 || FPP_MINOR_VERSION > 4
     class SetBrightnessCommand : public Command {
     public:
         SetBrightnessCommand(FPPBrightnessPlugin *p) : Command("Brightness"), plugin(p) {
@@ -70,7 +61,24 @@ public:
         }
         FPPBrightnessPlugin *plugin;
     };
-
+    class AdjustBrightnessCommand : public Command {
+    public:
+        AdjustBrightnessCommand(FPPBrightnessPlugin *p) : Command("Brightness Adjust"), plugin(p) {
+            args.push_back(CommandArg("brightness", "int", "Brightness").setRange(-100, 100)
+                           .setDefaultValue("0"));
+        }
+        
+        virtual std::unique_ptr<Command::Result> run(const std::vector<std::string> &args) override {
+            int adjust = 0;
+            if (args.size() >= 1) {
+                adjust = std::stoi(args[0]);
+            }
+            plugin->resetFade();
+            plugin->setBrightness(plugin->brightness + adjust, false);
+            return std::make_unique<Command::Result>("Brightness Adjusted");
+        }
+        FPPBrightnessPlugin *plugin;
+    };
     class FadeBrightnessCommand : public Command {
     public:
         FadeBrightnessCommand(FPPBrightnessPlugin *p) : Command("Brightness Fade"), plugin(p) {
@@ -98,18 +106,11 @@ public:
 
     void registerCommand() {
         CommandManager::INSTANCE.addCommand(new SetBrightnessCommand(this));
+        CommandManager::INSTANCE.addCommand(new AdjustBrightnessCommand(this));
         CommandManager::INSTANCE.addCommand(new FadeBrightnessCommand(this));
     }
-#else
-    void registerCommand() {}
-#endif
     
-#if FPP_MAJOR_VERSION >= 4
-    virtual const std::shared_ptr<httpserver::http_response> render_GET(const httpserver::http_request &req) override {
-#else
-    virtual const httpserver::http_response render_GET(const httpserver::http_request &req) override {
-#endif
-        
+    virtual const std::shared_ptr<httpserver::http_response> render_GET(const httpserver::http_request &req) override {        
         std::string p0 = req.get_path_pieces()[0];
         int plen = req.get_path_pieces().size();
         if (plen > 1) {
@@ -122,11 +123,7 @@ public:
         }
         
         std::string v = std::to_string(brightness);
-#if FPP_MAJOR_VERSION >= 4
         return std::shared_ptr<httpserver::http_response>(new httpserver::string_response(v, 200));
-#else
-        return httpserver::http_response_builder(v, 200);
-#endif
     }
     virtual void multiSyncData(const uint8_t *data, int len) override {
         std::vector<std::string> v;
@@ -169,7 +166,7 @@ public:
                 
                 std::string data = p1 + "/" + p2;
                 int dlen = data.size() + 1;
-                if (getFPPmode() == MASTER_MODE) multiSync->SendPluginData(name, (uint8_t*)data.c_str(), dlen);
+                if (multiSync->isMultiSyncEnabled()) multiSync->SendPluginData(name, (uint8_t*)data.c_str(), dlen);
             }
         } else if (p1 == "FadeDown") {
             std::string p2 = vals[1];
@@ -183,7 +180,7 @@ public:
                 
                 std::string data = p1 + "/" + p2;
                 int dlen = data.size() + 1;
-                if (getFPPmode() == MASTER_MODE) multiSync->SendPluginData(name, (uint8_t*)data.c_str(), dlen);
+                if (multiSync->isMultiSyncEnabled()) multiSync->SendPluginData(name, (uint8_t*)data.c_str(), dlen);
             }
         } else if (p1 != "") {
             int i = std::stoi(p1);
@@ -245,7 +242,7 @@ public:
             val["brightness"] = i;
             SaveJsonToFile(val, "/home/fpp/media/config/plugin.fpp-brightness.json");
         }
-        if (sendSync && getFPPmode() == MASTER_MODE) {
+        if (sendSync && multiSync->isMultiSyncEnabled()) {
             std::string s = std::to_string(i);
             int len = s.size() + 1;
             multiSync->SendPluginData(name, (uint8_t*)s.c_str(), len);
