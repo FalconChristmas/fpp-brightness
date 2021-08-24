@@ -71,6 +71,6 @@ $(document).ready(function() {onLoadGetBrightness()});
 <div class="row"><div class="col-md">The Brightness plugin also provides a REST api and MQTT api for controlling the brightness.</div></div>
 <div class="row"><div class="col-md">For REST, use a URL like http://{ip}/api/plugin-apis/Brightness/100 to set the brightness to 100.</div></div>
 <div class="row"><div class="col-md">For MQTT, the sub-topic is "/Brightness" and the payload would be the brightness.</div></div>
-<div class="row"><div class="col-md">If  FPP is running in Master mode, changes to the master brightness will also be sent to all the remotes that also have the Brightness plugin installed.</div></div>
+<div class="row"><div class="col-md">If FPP is running in Player mode with Multisync enabled, changes to the FPP device's brightness will also be sent to all the remotes that also have the Brightness plugin installed.</div></div>
 </div>
 </div>
