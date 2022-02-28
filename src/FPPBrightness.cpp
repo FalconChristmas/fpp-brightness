@@ -13,9 +13,6 @@
 #include <cmath>
 
 #include <httpserver.hpp>
-#if __has_include(<jsoncpp/json/json.h>)
-#include <jsoncpp/json/json.h>
-#endif
 #include "common.h"
 #include "settings.h"
 #include "Plugin.h"
@@ -33,9 +30,9 @@ public:
     
     FPPBrightnessPlugin() : FPPPlugin("fpp-brightness") {
         int startBrightness = 100;
-        if (FileExists("/home/fpp/media/config/plugin.fpp-brightness.json")) {
+        if (FileExists(FPP_DIR_CONFIG("/plugin.fpp-brightness.json"))) {
             Json::Value root;
-            if (LoadJsonFromFile("/home/fpp/media/config/plugin.fpp-brightness.json", root)) {
+            if (LoadJsonFromFile(FPP_DIR_CONFIG("/plugin.fpp-brightness.json"), root)) {
                 if (root.isMember("brightness")) {
                     startBrightness = root["brightness"].asInt();
                 }
@@ -243,7 +240,7 @@ public:
             }
             Json::Value val;
             val["brightness"] = i;
-            SaveJsonToFile(val, "/home/fpp/media/config/plugin.fpp-brightness.json");
+            SaveJsonToFile(val, FPP_DIR_CONFIG("/plugin.fpp-brightness.json"));
         }
         if (sendSync && multiSync->isMultiSyncEnabled()) {
             std::string s = std::to_string(i);

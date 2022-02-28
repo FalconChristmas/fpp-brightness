@@ -14,11 +14,17 @@
 			"branch": "master",
 			"sha": "a27c0b6b91c87ee82c0384053867b725c80f7265"
 		},
-                {
-                        "minFPPVersion": "5.0",
-                        "maxFPPVersion": "0",
-                        "branch": "master",
-                        "sha": ""
-                }
+        {
+            "minFPPVersion": "5.0",
+            "maxFPPVersion": "5.99,
+            "branch": "master",
+            "sha": "64713ae0d47bfb419314e92747a78b6704d81aaa"
+        },
+        {
+            "minFPPVersion": "6.0",
+            "maxFPPVersion": "0",
+            "branch": "master",
+            "sha": ""
+        }
 	]
 }

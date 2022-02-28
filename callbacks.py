@@ -8,7 +8,7 @@ import json
 import subprocess
 
 class Logger(object):
-    def __init__(self, filename="/home/fpp/media/logs/fpp-brightness.log"):
+    def __init__(self, filename=os.getenv("MEDIADIR") + "/logs/fpp-brightness.log"):
         self.terminal = sys.stdout
         self.log = open(filename, "a")
 
@@ -19,7 +19,7 @@ class Logger(object):
     def flush(self):
         pass
 
-sys.stdout = Logger("/home/fpp/media/logs/fpp-brightness.log")
+sys.stdout = Logger(os.getenv("MEDIADIR") + "/logs/fpp-brightness.log")
 
 parser = argparse.ArgumentParser(description='Brightness Plugin')
 parser.add_argument('-l','--list', help='Plugin Actions',action='store_true')
