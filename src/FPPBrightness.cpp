@@ -1,3 +1,4 @@
+#include <fpp-pch.h>
 
 #include <fstream>
 #include <sstream>
@@ -12,7 +13,9 @@
 #include <cmath>
 
 #include <httpserver.hpp>
+#if __has_include(<jsoncpp/json/json.h>)
 #include <jsoncpp/json/json.h>
+#endif
 #include "common.h"
 #include "settings.h"
 #include "Plugin.h"

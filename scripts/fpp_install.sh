@@ -5,8 +5,8 @@
 BASEDIR=$(dirname $0)
 cd $BASEDIR
 cd ..
-make
+make "SRCDIR=${SRCDIR}"
 
 
-. /opt/fpp/scripts/common
+. ${FPPDIR}/scripts/common
 setSetting restartFlag 1
