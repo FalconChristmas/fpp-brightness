@@ -18,10 +18,9 @@
 #include "Plugin.h"
 #include "Plugins.h"
 #include "log.h"
-#include "channeloutput/channeloutput.h"
 #include "mqtt.h"
 #include "MultiSync.h"
-
+#include "channeloutput/ChannelOutputSetup.h"
 #include "fppversion_defines.h"
 #include "commands/Commands.h"
 
