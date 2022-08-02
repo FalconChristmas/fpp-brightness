@@ -29,9 +29,10 @@ public:
     
     FPPBrightnessPlugin() : FPPPlugin("fpp-brightness") {
         int startBrightness = 100;
-        if (FileExists(FPP_DIR_CONFIG("/plugin.fpp-brightness.json"))) {
+        configLocation = FPP_DIR_CONFIG("/plugin.fpp-brightness.json");
+        if (FileExists(configLocation)) {
             Json::Value root;
-            if (LoadJsonFromFile(FPP_DIR_CONFIG("/plugin.fpp-brightness.json"), root)) {
+            if (LoadJsonFromFile(configLocation, root)) {
                 if (root.isMember("brightness")) {
                     startBrightness = root["brightness"].asInt();
                 }
@@ -239,7 +240,7 @@ public:
             }
             Json::Value val;
             val["brightness"] = i;
-            SaveJsonToFile(val, FPP_DIR_CONFIG("/plugin.fpp-brightness.json"));
+            SaveJsonToFile(val, configLocation);
         }
         if (sendSync && multiSync->isMultiSyncEnabled()) {
             std::string s = std::to_string(i);
@@ -263,6 +264,8 @@ public:
             startFadeTime, endFadeTime, endFadeTime - startFadeTime);
     }
     
+
+    std::string configLocation;
     long long startFadeTime = -1;
     long long endFadeTime = 0;
     int startFadeBrightness = 0;
