@@ -18,7 +18,7 @@
 #include "Plugin.h"
 #include "Plugins.h"
 #include "log.h"
-#include "mqtt.h"
+#include "Events.h"
 #include "MultiSync.h"
 #include "channeloutput/ChannelOutputSetup.h"
 #include "fppversion_defines.h"
@@ -195,9 +195,7 @@ public:
         std::function<void(const std::string &topic, const std::string &payload)> f = [this](const std::string &topic, const std::string &payload){
             multiSyncData((uint8_t*)payload.c_str(), payload.size() + 1);
         };
-        if (mqtt) {
-            mqtt->AddCallback("/Brightness", f);
-        }
+        Events::AddCallback("/Brightness", f);
     }
     
     virtual void modifyChannelData(int ms, uint8_t *seqData) override {
