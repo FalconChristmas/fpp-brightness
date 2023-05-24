@@ -188,7 +188,9 @@ public:
             startFadeTime = -1;
         }
     }
-
+    void unregisterApis(httpserver::webserver* m_ws) override {
+        m_ws->unregister_resource("/Brightness");
+    }
     void registerApis(httpserver::webserver *m_ws) override {
         m_ws->register_resource("/Brightness", this, true);
         
@@ -196,6 +198,7 @@ public:
             multiSyncData((uint8_t*)payload.c_str(), payload.size() + 1);
         };
         Events::AddCallback("/Brightness", f);
+        Events::RemoveCallback("/Brightness");
     }
     
     virtual void modifyChannelData(int ms, uint8_t *seqData) override {
