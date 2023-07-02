@@ -68,6 +68,7 @@ $(document).ready(function() {onLoadGetBrightness()});
 <div class="container-fluid settingsTable settingsGroupTable">
 <div class="row"><div id="currentSliderValue" class="col-md">Current brightness: 100</div></div>
 <div class="row"><div class="col-md"><input type="range" min="0" max="200" value="100" class="slider" id="brightnessSlider" oninput="sliderAdjusted()" ></div></div>
+<div class="row"><div class="col-auto">Exclude Ranges: </div><div class="col-auto"><? PrintSettingTextSaved("BrightnessExcludeRanges", 1, 0, 128, 64, "fpp-brightness"); ?></div></div>
 <div class="row"><div class="col-md">The Brightness plugin also provides a REST api and MQTT api for controlling the brightness.</div></div>
 <div class="row"><div class="col-md">For REST, use a URL like http://{ip}/api/plugin-apis/Brightness/100 to set the brightness to 100.</div></div>
 <div class="row"><div class="col-md">For MQTT, the sub-topic is "/Brightness" and the payload would be the brightness.</div></div>

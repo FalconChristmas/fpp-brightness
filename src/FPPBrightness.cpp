@@ -24,10 +24,10 @@
 #include "fppversion_defines.h"
 #include "commands/Commands.h"
 
-class FPPBrightnessPlugin : public FPPPlugin, public httpserver::http_resource {
+class FPPBrightnessPlugin : public FPPPlugins::Plugin, public FPPPlugins::ChannelDataPlugin, public FPPPlugins::APIProviderPlugin, public httpserver::http_resource {
 public:
     
-    FPPBrightnessPlugin() : FPPPlugin("fpp-brightness") {
+    FPPBrightnessPlugin() : FPPPlugins::Plugin("fpp-brightness"), FPPPlugins::ChannelDataPlugin(), FPPPlugins::APIProviderPlugin() {
         int startBrightness = 100;
         configLocation = FPP_DIR_CONFIG("/plugin.fpp-brightness.json");
         if (FileExists(configLocation)) {
@@ -216,13 +216,90 @@ public:
                 setBrightness(newb, false);
             }
         }
-        for (auto &a : GetOutputRanges()) {
+        calcRanges();
+        for (auto &a : ranges) {
             int len = a.second;
             for (int x = 0, start = a.first; x < len; x++, start++) {
                 seqData[start] = map[seqData[start]];
             }
         }
     }
+
+    std::vector<std::pair<uint32_t, uint32_t>> subtractRanges(const std::vector<std::pair<uint32_t, uint32_t>>& src, const std::vector<std::pair<uint32_t, uint32_t>>& sub) {
+        std::vector<std::pair<uint32_t, uint32_t>> result;
+        for (const auto& range1 : src) {
+            bool overlap = false;
+            for (const auto& range2 : sub) {
+                // Check if range2 entirely overlaps range1
+                if (range2.first <= range1.first && range2.second >= range1.second) {
+                    // Range1 is entirely covered by range2, skip it
+                    overlap = true;
+                    continue;
+                }
+
+                // Check if range2 overlaps the start of range1
+                if (range2.first <= range1.second && range2.first >= range1.first) {
+                    overlap = true;
+                    result.push_back(std::make_pair(range1.first, range2.first - 1));
+                }
+
+                // Check if range2 overlaps the end of range1
+                if (range2.second >= range1.first && range2.second <= range1.second) {
+                    overlap = true;
+                    result.push_back(std::make_pair(range2.second + 1, range1.second));
+                }
+            }
+            // If no overlap, add range1 to the result
+            if (!overlap) {
+                result.push_back(range1);
+            }
+        }
+        return result;
+    }
+
+
+    void calcRanges() {
+        if (ranges.empty()) {
+            std::vector<std::pair<uint32_t, uint32_t>> excludes;
+
+            std::string ex = settings["BrightnessExcludeRanges"];
+            if (ex != "") {
+                std::vector<std::string> exranges = split(ex, ',');
+                for (auto &r : exranges) {
+                    size_t idx = r.find('-');
+                    if (idx != std::string::npos) {
+                        std::string fp = r.substr(0, idx);
+                        std::string ep = r.substr(idx + 1);
+                        int st = std::atoi(fp.c_str());
+                        if (st > 0) {
+                            uint32_t start = st - 1;
+                            int end = std::atoi(ep.c_str()) - 1;
+                            if (end > 0 && end > start) {
+                                excludes.emplace_back(start, end);
+                            }
+                        }
+                    } else {
+                        int start = std::atoi(r.c_str());
+                        if (start > 0) {
+                            excludes.emplace_back(start - 1, start - 1);
+                        }
+                    }
+                }
+                std::vector<std::pair<uint32_t, uint32_t>> srcRanges;
+                for (auto & rng : GetOutputRanges()) {
+                    uint32_t end = rng.first + rng.second - 1;
+                    srcRanges.emplace_back(rng.first, end);
+                }
+                for (auto &a : subtractRanges(srcRanges, excludes)) {
+                    ranges.emplace_back(a.first, a.second - a.first + 1);
+                }
+            }
+            if (ranges.empty()) {
+                ranges = GetOutputRanges();
+            }
+        }
+    }
+    
     
     void setBrightness(int i, bool sendSync = true) {
         if (brightness != i) {
@@ -275,11 +352,13 @@ public:
     int brightness = -1;
     long long lastms = 0;
     uint8_t map[256];
+
+    std::vector<std::pair<std::uint32_t, std::uint32_t>> ranges;
 };
 
 
 extern "C" {
-    FPPPlugin *createPlugin() {
+    FPPPlugins::Plugin *createPlugin() {
         return new FPPBrightnessPlugin();
     }
 }
