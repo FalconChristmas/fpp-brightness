@@ -110,7 +110,7 @@ public:
         CommandManager::INSTANCE.addCommand(new FadeBrightnessCommand(this));
     }
     
-    virtual const std::shared_ptr<httpserver::http_response> render_GET(const httpserver::http_request &req) override {        
+    virtual std::shared_ptr<httpserver::http_response> render_GET(const httpserver::http_request &req) override {        
         std::string p0 = req.get_path_pieces()[0];
         int plen = req.get_path_pieces().size();
         if (plen > 1) {
