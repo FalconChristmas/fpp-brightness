@@ -32,8 +32,14 @@
             "branch": "master",
             "sha": ""
         },
-	{
+	    {
             "minFPPVersion": "8.0",
+            "maxFPPVersion": "0",
+            "branch": "master",
+            "sha": ""
+        },
+	    {
+            "minFPPVersion": "9.0",
             "maxFPPVersion": "0",
             "branch": "master",
             "sha": ""
