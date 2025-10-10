@@ -246,14 +246,24 @@ public:
                         // Exclude range completely covers current range - skip it (don't add to newRanges)
                     } else if (excludeRange.first > curRange.first && excludeRange.second < curRange.second) {
                         // Exclude range is completely within current range - split into two ranges
-                        newRanges.push_back(std::make_pair(curRange.first, excludeRange.first - 1));
-                        newRanges.push_back(std::make_pair(excludeRange.second + 1, curRange.second));
+                        // Add the portion before the exclude (if excludeRange.first > 0)
+                        if (excludeRange.first > 0) {
+                            newRanges.push_back(std::make_pair(curRange.first, excludeRange.first - 1));
+                        }
+                        // Add the portion after the exclude (if excludeRange.second < UINT32_MAX)
+                        if (excludeRange.second < UINT32_MAX) {
+                            newRanges.push_back(std::make_pair(excludeRange.second + 1, curRange.second));
+                        }
                     } else if (excludeRange.first <= curRange.first) {
                         // Exclude range overlaps the start - keep only the end portion
-                        newRanges.push_back(std::make_pair(excludeRange.second + 1, curRange.second));
+                        if (excludeRange.second < UINT32_MAX) {
+                            newRanges.push_back(std::make_pair(excludeRange.second + 1, curRange.second));
+                        }
                     } else {
                         // Exclude range overlaps the end - keep only the start portion
-                        newRanges.push_back(std::make_pair(curRange.first, excludeRange.first - 1));
+                        if (excludeRange.first > 0) {
+                            newRanges.push_back(std::make_pair(curRange.first, excludeRange.first - 1));
+                        }
                     }
                 }
 
