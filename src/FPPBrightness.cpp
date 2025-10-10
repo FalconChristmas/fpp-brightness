@@ -227,33 +227,57 @@ public:
 
     std::vector<std::pair<uint32_t, uint32_t>> subtractRanges(const std::vector<std::pair<uint32_t, uint32_t>>& src, const std::vector<std::pair<uint32_t, uint32_t>>& sub) {
         std::vector<std::pair<uint32_t, uint32_t>> result;
-        for (const auto& range1 : src) {
-            bool overlap = false;
-            for (const auto& range2 : sub) {
-                // Check if range2 entirely overlaps range1
-                if (range2.first <= range1.first && range2.second >= range1.second) {
-                    // Range1 is entirely covered by range2, skip it
-                    overlap = true;
-                    continue;
+
+        for (const auto& srcRange : src) {
+            // Start with the full source range and progressively subtract exclude ranges
+            std::vector<std::pair<uint32_t, uint32_t>> currentRanges;
+            currentRanges.push_back(srcRange);
+
+            // Process each exclude range
+            for (const auto& excludeRange : sub) {
+                std::vector<std::pair<uint32_t, uint32_t>> newRanges;
+
+                for (const auto& curRange : currentRanges) {
+                    // Check if exclude range overlaps with current range
+                    if (excludeRange.second < curRange.first || excludeRange.first > curRange.second) {
+                        // No overlap - keep the current range as-is
+                        newRanges.push_back(curRange);
+                    } else if (excludeRange.first <= curRange.first && excludeRange.second >= curRange.second) {
+                        // Exclude range completely covers current range - skip it (don't add to newRanges)
+                    } else if (excludeRange.first > curRange.first && excludeRange.second < curRange.second) {
+                        // Exclude range is completely within current range - split into two ranges
+                        // Add the portion before the exclude (if excludeRange.first > 0)
+                        if (excludeRange.first > 0) {
+                            newRanges.push_back(std::make_pair(curRange.first, excludeRange.first - 1));
+                        }
+                        // Add the portion after the exclude (if excludeRange.second < UINT32_MAX)
+                        if (excludeRange.second < UINT32_MAX) {
+                            newRanges.push_back(std::make_pair(excludeRange.second + 1, curRange.second));
+                        }
+                    } else if (excludeRange.first <= curRange.first) {
+                        // Exclude range overlaps the start - keep only the end portion
+                        if (excludeRange.second < UINT32_MAX) {
+                            newRanges.push_back(std::make_pair(excludeRange.second + 1, curRange.second));
+                        }
+                    } else {
+                        // Exclude range overlaps the end - keep only the start portion
+                        if (excludeRange.first > 0) {
+                            newRanges.push_back(std::make_pair(curRange.first, excludeRange.first - 1));
+                        }
+                    }
                 }
 
-                // Check if range2 overlaps the start of range1
-                if (range2.first <= range1.second && range2.first >= range1.first) {
-                    overlap = true;
-                    result.push_back(std::make_pair(range1.first, range2.first - 1));
-                }
-
-                // Check if range2 overlaps the end of range1
-                if (range2.second >= range1.first && range2.second <= range1.second) {
-                    overlap = true;
-                    result.push_back(std::make_pair(range2.second + 1, range1.second));
-                }
+                currentRanges = newRanges;
             }
-            // If no overlap, add range1 to the result
-            if (!overlap) {
-                result.push_back(range1);
+
+            // Add all remaining ranges to the result
+            for (const auto& range : currentRanges) {
+                if (range.first <= range.second) {
+                    result.push_back(range);
+                }
             }
         }
+
         return result;
     }
 
