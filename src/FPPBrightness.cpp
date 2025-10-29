@@ -53,7 +53,7 @@ public:
         virtual std::unique_ptr<Command::Result> run(const std::vector<std::string> &args) override {
             int brightness = 100;
             if (args.size() >= 1) {
-                brightness = std::stoi(args[0]);
+                brightness = std::atoi(args[0].c_str());
             }
             plugin->resetFade();
             plugin->setBrightness(brightness, false);
