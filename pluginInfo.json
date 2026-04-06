@@ -1,19 +1,19 @@
 {
-	"repoName": "fpp-brightness",
-	"name": "Brightness Control Plugin for FPP",
-	"author": "Daniel Kulp (dkulp)",
-	"description": "This plugin allows dynamic/real time control of the brightness of the display.",
-	"homeURL": "https://github.com/FalconChristmas/fpp-brightness",
-	"srcURL": "https://github.com/FalconChristmas/fpp-brightness.git",
-	"bugURL": "https://github.com/FalconChristmas/fpp-brightness/issues",
-	"allowUpdates": 1,
-	"versions": [
-		{
-			"minFPPVersion": "3.3",
-			"maxFPPVersion": "4.99",
-			"branch": "master",
-			"sha": "a27c0b6b91c87ee82c0384053867b725c80f7265"
-		},
+    "repoName": "fpp-brightness",
+    "name": "Brightness Control Plugin for FPP",
+    "author": "Daniel Kulp (dkulp)",
+    "description": "This plugin allows dynamic/real time control of the brightness of the display.",
+    "homeURL": "https://github.com/FalconChristmas/fpp-brightness",
+    "srcURL": "https://github.com/FalconChristmas/fpp-brightness.git",
+    "bugURL": "https://github.com/FalconChristmas/fpp-brightness/issues",
+    "allowUpdates": 1,
+    "versions": [
+        {
+            "minFPPVersion": "3.3",
+            "maxFPPVersion": "4.99",
+            "branch": "master",
+            "sha": "a27c0b6b91c87ee82c0384053867b725c80f7265"
+        },
         {
             "minFPPVersion": "5.0",
             "maxFPPVersion": "5.99",
@@ -30,19 +30,25 @@
             "minFPPVersion": "7.0",
             "maxFPPVersion": "7.99",
             "branch": "master",
-            "sha": ""
+            "sha": "59b0735c3ed39516d008822ad16e0f708cba154c"
         },
-	    {
+        {
             "minFPPVersion": "8.0",
             "maxFPPVersion": "8.99",
             "branch": "master",
-            "sha": ""
+            "sha": "59b0735c3ed39516d008822ad16e0f708cba154c"
         },
-	    {
+        {
             "minFPPVersion": "9.0",
+            "maxFPPVersion": "9.99",
+            "branch": "master",
+            "sha": "59b0735c3ed39516d008822ad16e0f708cba154c"
+        },
+        {
+            "minFPPVersion": "10.0",
             "maxFPPVersion": "0",
             "branch": "master",
             "sha": ""
-        }	
-	]
+        }
+    ]
 }
