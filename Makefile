@@ -6,7 +6,7 @@ all: libfpp-brightness.$(SHLIB_EXT)
 debug: all
 
 OBJECTS_fpp_Brightness_so += src/FPPBrightness.o
-LIBS_fpp_Brightness_so += -L${SRCDIR} -lfpp -ljsoncpp -lhttpserver
+LIBS_fpp_Brightness_so += -L${SRCDIR} -lfpp -ljsoncpp
 CXXFLAGS_src/FPPBrightness.o += -I${SRCDIR}
 
 %.o: %.cpp Makefile
