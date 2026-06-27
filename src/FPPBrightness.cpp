@@ -241,6 +241,7 @@ public:
     void unregisterApis() override
     {
         // Drogon does not support route removal; routes become inactive when the plugin unloads
+        Events::RemoveCallback("/Brightness");
     }
     void registerApis() override
     {
@@ -259,7 +260,6 @@ public:
             multiSyncData((uint8_t *)payload.c_str(), payload.size() + 1);
         };
         Events::AddCallback("/Brightness", f);
-        Events::RemoveCallback("/Brightness");
     }
 
     virtual void modifyChannelData(int ms, uint8_t *seqData) override
