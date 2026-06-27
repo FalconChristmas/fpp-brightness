@@ -39,6 +39,9 @@ $(document).ready(function() {onLoadGetBrightness()});
   transition: opacity .2s;
 }
 
+/* FPP10 dark mode only — base/light (and FPP9) rendering left unchanged. */
+[data-bs-theme="dark"] .slider { background: var(--bs-secondary-bg); }
+
 /* Mouse-over effects */
 .slider:hover {
   opacity: 1; /* Fully shown on mouse-over */

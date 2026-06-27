@@ -1,5 +1,6 @@
+  <style>[data-bs-theme="dark"] #aboutBox { border-color: var(--bs-border-color); }</style>
   <div style="margin:0 auto;"> <br />
-    <fieldset style="padding: 10px; border: 2px solid #000;">
+    <fieldset id="aboutBox" style="padding: 10px; border: 2px solid #000;">
       <legend>Brightness Plugin Info</legend>
       <div style="overflow: hidden; padding: 10px;">
     <div>
