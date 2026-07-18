@@ -6,6 +6,7 @@
     "homeURL": "https://github.com/FalconChristmas/fpp-brightness",
     "srcURL": "https://github.com/FalconChristmas/fpp-brightness.git",
     "bugURL": "https://github.com/FalconChristmas/fpp-brightness/issues",
+    "iconURL": "https://raw.githubusercontent.com/FalconChristmas/fpp-brightness/master/icon.png",
     "allowUpdates": 1,
     "versions": [
         {
