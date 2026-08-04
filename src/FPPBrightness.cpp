@@ -69,6 +69,14 @@ public:
             {
                 brightness = std::atoi(args[0].c_str());
             }
+            if (brightness > 200)
+            {
+                return std::make_unique<Command::ErrorResult>("Brightness cannot be set above 200");
+            }
+            if (brightness < 0)
+            {
+                return std::make_unique<Command::ErrorResult>("Brightness cannot be set below 0");
+            }
             plugin->resetFade();
             plugin->setBrightness(brightness, false);
             return std::make_unique<Command::Result>("Brightness Set");
@@ -89,6 +97,14 @@ public:
             if (args.size() >= 1)
             {
                 adjust = std::stoi(args[0]);
+            }
+            if (plugin->brightness + adjust > 200)
+            {
+                return std::make_unique<Command::ErrorResult>("Brightness cannot be adjusted above 200");
+            }
+            if (plugin->brightness + adjust < 0)
+            {
+                return std::make_unique<Command::ErrorResult>("Brightness cannot be adjusted below 0");
             }
             plugin->resetFade();
             plugin->setBrightness(plugin->brightness + adjust, false);
@@ -116,6 +132,14 @@ public:
             if (args.size() >= 2)
             {
                 duration = std::stoi(args[1]);
+            }
+            if (newBrightness > 200)
+            {
+                return std::make_unique<Command::ErrorResult>("Brightness cannot be faded above 200");
+            }
+            if (newBrightness < 0)
+            {
+                return std::make_unique<Command::ErrorResult>("Brightness cannot be faded below 0");
             }
             plugin->fade(newBrightness, duration);
             return std::make_unique<Command::Result>("Brightness Fade");
@@ -425,6 +449,14 @@ public:
 
     void setBrightness(int i, bool sendSync = true)
     {
+        if (i > 200)
+        {
+            i = 200;
+        }
+        if (i < 0)
+        {
+            i = 0;
+        }
         if (brightness != i)
         {
             brightness = i;
