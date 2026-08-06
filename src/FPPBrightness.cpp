@@ -1,10 +1,3 @@
-// Include drogon framework header before FPP headers to avoid
-// macro conflicts between trantor's LOG_* macros and FPP's LogLevel enum
-#include <drogon/HttpAppFramework.h>
-#undef LOG_WARN
-#undef LOG_INFO
-#undef LOG_DEBUG
-
 #include <fpp-pch.h>
 
 #include <fstream>
@@ -150,9 +143,37 @@ public:
 
     void registerCommand()
     {
-        CommandManager::INSTANCE.addCommand(new SetBrightnessCommand(this));
-        CommandManager::INSTANCE.addCommand(new AdjustBrightnessCommand(this));
-        CommandManager::INSTANCE.addCommand(new FadeBrightnessCommand(this));
+        addOwnedCommand(new SetBrightnessCommand(this));
+        addOwnedCommand(new AdjustBrightnessCommand(this));
+        addOwnedCommand(new FadeBrightnessCommand(this));
+    }
+
+    // These Command subclasses are declared here, so their vtables live in this
+    // plugin's .so and they hold a back-pointer to this plugin. Both are gone
+    // once the plugin is unloaded, so it has to take them back itself.
+    void addOwnedCommand(Command *c)
+    {
+        myCommands.push_back(c);
+        CommandManager::INSTANCE.addCommand(c);
+    }
+    void removeOwnedCommands()
+    {
+        for (Command *c : myCommands)
+        {
+            // removeCommand() only unregisters - CommandManager deletes whatever
+            // is still in its registry at shutdown, so taking one back means
+            // owning it again.
+            CommandManager::INSTANCE.removeCommand(c);
+            delete c;
+        }
+        myCommands.clear();
+    }
+
+    // Nothing here is asynchronous, so no readiness predicate is needed.
+    virtual std::function<bool()> shutdown() override
+    {
+        removeOwnedCommands();
+        return nullptr;
     }
 
     void handleBrightnessRequest(const HttpRequestPtr &req,
@@ -264,20 +285,26 @@ public:
     }
     void unregisterApis() override
     {
-        // Drogon does not support route removal; routes become inactive when the plugin unloads
+        // Both the handler and the Events callback are this plugin's code, so
+        // they have to be gone before the library can be.
+        // unregisterPluginApi() does not return until no request is inside the
+        // handler and the handler itself has been destroyed.
+        FPPPlugins::unregisterPluginApi("/Brightness");
         Events::RemoveCallback("/Brightness");
     }
     void registerApis() override
     {
-        auto handler = [this](const HttpRequestPtr &req,
-                              std::function<void(const HttpResponsePtr &)> &&callback)
-        {
-            handleBrightnessRequest(req, std::move(callback));
-        };
-        auto handler2 = handler;
-
-        drogon::app().registerHandler("/Brightness", std::move(handler), {drogon::Get});
-        drogon::app().registerHandlerViaRegex("/Brightness/.*", std::move(handler2), {drogon::Get});
+        // Registered through FPP rather than drogon::app() directly: drogon has
+        // no route removal, so a handler registered straight with it could
+        // never be withdrawn and would pin this plugin in memory. family=true
+        // covers /Brightness/<value> and /Brightness/FadeUp/<ms> as well.
+        FPPPlugins::registerPluginApi(
+            "/Brightness",
+            [this](const HttpRequestPtr &req, HttpCallback &&callback)
+            {
+                handleBrightnessRequest(req, std::move(callback));
+            },
+            {drogon::Get}, true);
 
         std::function<void(const std::string &topic, const std::string &payload)> f = [this](const std::string &topic, const std::string &payload)
         {
@@ -513,9 +540,18 @@ public:
     int brightness = -1;
     long long lastms = 0;
     uint8_t map[256];
+    std::vector<Command *> myCommands;
 
     std::vector<std::pair<std::uint32_t, std::uint32_t>> ranges;
 };
+
+// Safe to dlclose() on unload: no threads, no timers, no CurlManager requests,
+// no epoll descriptors and no drogon client objects, so nothing outside this
+// library can still be holding a pointer into it once unregisterApis() and
+// shutdown() have returned. The routes go through registerPluginApi(), the
+// Events callback comes back in unregisterApis(), and the three commands are
+// withdrawn and deleted in shutdown().
+FPP_PLUGIN_SUPPORTS_UNLOAD()
 
 extern "C"
 {
