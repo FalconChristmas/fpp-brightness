@@ -1,0 +1,90 @@
+{
+    "paths": {
+        "/Brightness": {
+            "get": {
+                "summary": "Read the current brightness",
+                "description": "Returns the brightness the plugin is currently applying, as a whole number from 0 to 200 where 100 is unmodified output.",
+                "responses": {
+                    "200": {
+                        "description": "Current brightness, 0-200",
+                        "content": {
+                            "text/plain": {
+                                "schema": {
+                                    "type": "string"
+                                },
+                                "example": "100"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/Brightness/{value}": {
+            "get": {
+                "summary": "Set the brightness",
+                "description": "Sets the brightness and returns the new value. The change is multisynced to remotes when MultiSync is enabled.",
+                "parameters": [
+                    {
+                        "name": "value",
+                        "in": "path",
+                        "required": true,
+                        "description": "Brightness from 0 to 200; 100 is unmodified output.",
+                        "schema": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 200
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "The brightness now in effect",
+                        "content": {
+                            "text/plain": {
+                                "schema": {
+                                    "type": "string"
+                                },
+                                "example": "75"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/Brightness/{direction}/{duration}": {
+            "get": {
+                "summary": "Fade the brightness up or down",
+                "description": "Starts a fade to full or to zero over the given time. Also multisynced to remotes.",
+                "parameters": [
+                    {
+                        "name": "direction",
+                        "in": "path",
+                        "required": true,
+                        "description": "FadeUp or FadeDown",
+                        "schema": {
+                            "type": "string",
+                            "enum": [
+                                "FadeUp",
+                                "FadeDown"
+                            ]
+                        }
+                    },
+                    {
+                        "name": "duration",
+                        "in": "path",
+                        "required": true,
+                        "description": "Fade length in milliseconds",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "The brightness at the moment the fade was started"
+                    }
+                }
+            }
+        }
+    }
+}
