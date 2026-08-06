@@ -27,7 +27,10 @@
 class FPPBrightnessPlugin : public FPPPlugins::Plugin, public FPPPlugins::ChannelDataPlugin, public FPPPlugins::APIProviderPlugin
 {
 public:
-    FPPBrightnessPlugin() : FPPPlugins::Plugin("fpp-brightness"), FPPPlugins::ChannelDataPlugin(), FPPPlugins::APIProviderPlugin()
+    // The "true" asks FPP to watch config/plugin.fpp-brightness and call
+    // settingChanged() below, so editing the exclude ranges no longer needs an
+    // fppd restart.
+    FPPBrightnessPlugin() : FPPPlugins::Plugin("fpp-brightness", true), FPPPlugins::ChannelDataPlugin(), FPPPlugins::APIProviderPlugin()
     {
         int startBrightness = 100;
         configLocation = FPP_DIR_CONFIG("/plugin.fpp-brightness.json");
@@ -511,6 +514,19 @@ public:
             std::string s = std::to_string(i);
             int len = s.size() + 1;
             multiSync->SendPluginData(name, (uint8_t *)s.c_str(), len);
+        }
+    }
+
+    // Called by FPP when config/plugin.fpp-brightness changes; the base class
+    // has already updated settings[key]. calcRanges() rebuilds from
+    // BrightnessExcludeRanges whenever the cache is empty, so emptying it is the
+    // whole job - the next output frame picks the new ranges up.
+    virtual void settingChanged(const std::string &key, const std::string &value) override
+    {
+        if (key == "BrightnessExcludeRanges")
+        {
+            LogInfo(VB_PLUGIN, "Brightness: exclude ranges changed, recalculating\n");
+            ranges.clear();
         }
     }
 
