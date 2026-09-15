@@ -51,5 +51,22 @@
             "branch": "master",
             "sha": ""
         }
-    ]
+    ],
+    "privacy": {
+        "summary": "Sends the brightness you set to other FPP players on your network through FPP's MultiSync, only while MultiSync is on. Nothing else leaves this device and nothing is kept about anyone.",
+        "sends": [
+            {
+                "to": "the other FPP players on your network, via FPP's MultiSync",
+                "what": "the brightness level or fade you set",
+                "why": "so players that also run this plugin dim to match this one",
+                "alwaysOn": false
+            }
+        ],
+        "collects": [],
+        "sensors": [],
+        "remoteAccess": "none",
+        "systemChanges": [],
+        "closedCode": false,
+        "other": "The last brightness (config/plugin.fpp-brightness.json) and the exclude-ranges setting (config/plugin.fpp-brightness) are kept under /home/fpp/media and are not removed when the plugin is uninstalled. Brightness can also be changed by anything on your network that can send FPP MultiSync packets, and over MQTT if you have set FPP up with a broker; these use FPP's own connections and need no extra login."
+    }
 }
