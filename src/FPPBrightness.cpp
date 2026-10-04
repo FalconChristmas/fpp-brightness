@@ -11,6 +11,7 @@
 #include <chrono>
 #include <thread>
 #include <cmath>
+#include <mutex>
 
 #include "fpphttp.h"
 #include "common.h"
@@ -144,11 +145,64 @@ public:
         FPPBrightnessPlugin *plugin;
     };
 
+    // The exclude commands only change the running list. The saved
+    // BrightnessExcludeRanges setting stays the baseline: it is what fppd
+    // starts with, and Brightness Exclude Reset goes back to it.
+    enum class ExcludeOp
+    {
+        Set,
+        Add,
+        Remove,
+        Reset
+    };
+    class ExcludeRangesCommand : public Command
+    {
+    public:
+        ExcludeRangesCommand(FPPBrightnessPlugin *p, const std::string &n, const std::string &descript, ExcludeOp o)
+            : Command(n, descript), plugin(p), op(o)
+        {
+            if (op != ExcludeOp::Reset)
+            {
+                // Optional so Set can be sent blank to clear every exclusion.
+                args.push_back(CommandArg("ranges", "string", "Channels (e.g. 1-512,1000)", op == ExcludeOp::Set).setDefaultValue(""));
+            }
+        }
+
+        virtual std::unique_ptr<Command::Result> run(const std::vector<std::string> &args) override
+        {
+            std::vector<std::pair<uint32_t, uint32_t>> parsed;
+            if (op != ExcludeOp::Reset)
+            {
+                std::string arg = args.empty() ? "" : args[0];
+                std::string bad;
+                if (!plugin->parseRanges(arg, parsed, bad))
+                {
+                    return std::make_unique<Command::ErrorResult>("Invalid channel range: " + bad);
+                }
+                if (parsed.empty() && op != ExcludeOp::Set)
+                {
+                    return std::make_unique<Command::ErrorResult>("No channels given");
+                }
+            }
+            return std::make_unique<Command::Result>("Brightness exclude ranges: " + plugin->changeExcludes(op, parsed));
+        }
+        FPPBrightnessPlugin *plugin;
+        ExcludeOp op;
+    };
+
     void registerCommand()
     {
         addOwnedCommand(new SetBrightnessCommand(this));
         addOwnedCommand(new AdjustBrightnessCommand(this));
         addOwnedCommand(new FadeBrightnessCommand(this));
+        addOwnedCommand(new ExcludeRangesCommand(this, "Brightness Exclude Set",
+                                                 "Replace the channels brightness leaves alone. Blank clears the list.", ExcludeOp::Set));
+        addOwnedCommand(new ExcludeRangesCommand(this, "Brightness Exclude Add",
+                                                 "Stop applying brightness to these channels.", ExcludeOp::Add));
+        addOwnedCommand(new ExcludeRangesCommand(this, "Brightness Exclude Remove",
+                                                 "Apply brightness to these channels again.", ExcludeOp::Remove));
+        addOwnedCommand(new ExcludeRangesCommand(this, "Brightness Exclude Reset",
+                                                 "Go back to the exclude ranges saved on the plugin page.", ExcludeOp::Reset));
     }
 
     // These Command subclasses are declared here, so their vtables live in this
@@ -336,6 +390,7 @@ public:
                 setBrightness(newb, false);
             }
         }
+        std::lock_guard<std::mutex> lock(rangesLock);
         calcRanges();
         for (auto &a : ranges)
         {
@@ -422,58 +477,154 @@ public:
         return result;
     }
 
+    // Parses "1-100, 250, 300-400" (1-based, inclusive) into 0-based
+    // inclusive pairs. Returns false and the offending piece if one is not a
+    // channel or a low-high range.
+    bool parseRanges(const std::string &str, std::vector<std::pair<uint32_t, uint32_t>> &out, std::string &bad)
+    {
+        out.clear();
+        for (auto r : split(str, ','))
+        {
+            r.erase(std::remove_if(r.begin(), r.end(), ::isspace), r.end());
+            if (r.empty())
+            {
+                continue;
+            }
+            size_t idx = r.find('-');
+            std::string fp = idx == std::string::npos ? r : r.substr(0, idx);
+            std::string ep = idx == std::string::npos ? r : r.substr(idx + 1);
+            if (fp.empty() || ep.empty() ||
+                fp.find_first_not_of("0123456789") != std::string::npos ||
+                ep.find_first_not_of("0123456789") != std::string::npos)
+            {
+                bad = r;
+                return false;
+            }
+            unsigned long st = std::strtoul(fp.c_str(), nullptr, 10);
+            unsigned long en = std::strtoul(ep.c_str(), nullptr, 10);
+            if (st == 0 || en < st || en > UINT32_MAX)
+            {
+                bad = r;
+                return false;
+            }
+            out.emplace_back(st - 1, en - 1);
+        }
+        return true;
+    }
+
+    // Sorts and joins overlapping or touching ranges so Add can be repeated
+    // without the list growing.
+    static std::vector<std::pair<uint32_t, uint32_t>> mergeRanges(std::vector<std::pair<uint32_t, uint32_t>> r)
+    {
+        std::sort(r.begin(), r.end());
+        std::vector<std::pair<uint32_t, uint32_t>> result;
+        for (auto &a : r)
+        {
+            if (!result.empty() && (uint64_t)a.first <= (uint64_t)result.back().second + 1)
+            {
+                result.back().second = std::max(result.back().second, a.second);
+            }
+            else
+            {
+                result.push_back(a);
+            }
+        }
+        return result;
+    }
+
+    static std::string formatRanges(const std::vector<std::pair<uint32_t, uint32_t>> &r)
+    {
+        if (r.empty())
+        {
+            return "(none)";
+        }
+        std::string s;
+        for (auto &a : r)
+        {
+            if (!s.empty())
+            {
+                s += ",";
+            }
+            s += std::to_string((uint64_t)a.first + 1);
+            if (a.second != a.first)
+            {
+                s += "-" + std::to_string((uint64_t)a.second + 1);
+            }
+        }
+        return s;
+    }
+
+    std::string changeExcludes(ExcludeOp op, const std::vector<std::pair<uint32_t, uint32_t>> &r)
+    {
+        std::lock_guard<std::mutex> lock(rangesLock);
+        loadExcludes();
+        switch (op)
+        {
+        case ExcludeOp::Set:
+            excludes = mergeRanges(r);
+            break;
+        case ExcludeOp::Add:
+            excludes.insert(excludes.end(), r.begin(), r.end());
+            excludes = mergeRanges(excludes);
+            break;
+        case ExcludeOp::Remove:
+            excludes = subtractRanges(excludes, r);
+            break;
+        case ExcludeOp::Reset:
+            excludesLoaded = false;
+            loadExcludes();
+            break;
+        }
+        rangesValid = false;
+        std::string s = formatRanges(excludes);
+        LogInfo(VB_PLUGIN, "Brightness: exclude ranges now %s\n", s.c_str());
+        return s;
+    }
+
+    // Caller holds rangesLock.
+    void loadExcludes()
+    {
+        if (!excludesLoaded)
+        {
+            std::vector<std::pair<uint32_t, uint32_t>> parsed;
+            std::string bad;
+            if (!parseRanges(settings["BrightnessExcludeRanges"], parsed, bad))
+            {
+                // Keep what did parse rather than dropping the whole setting.
+                LogWarn(VB_PLUGIN, "Brightness: ignoring invalid exclude range '%s'\n", bad.c_str());
+            }
+            excludes = mergeRanges(parsed);
+            excludesLoaded = true;
+        }
+    }
+
+    // Caller holds rangesLock.
     void calcRanges()
     {
-        if (ranges.empty())
+        if (!rangesValid)
         {
-            std::vector<std::pair<uint32_t, uint32_t>> excludes;
-
-            std::string ex = settings["BrightnessExcludeRanges"];
-            if (ex != "")
+            loadExcludes();
+            ranges.clear();
+            if (excludes.empty())
             {
-                std::vector<std::string> exranges = split(ex, ',');
-                for (auto &r : exranges)
-                {
-                    size_t idx = r.find('-');
-                    if (idx != std::string::npos)
-                    {
-                        std::string fp = r.substr(0, idx);
-                        std::string ep = r.substr(idx + 1);
-                        int st = std::atoi(fp.c_str());
-                        if (st > 0)
-                        {
-                            uint32_t start = st - 1;
-                            int end = std::atoi(ep.c_str()) - 1;
-                            if (end > 0 && end > start)
-                            {
-                                excludes.emplace_back(start, end);
-                            }
-                        }
-                    }
-                    else
-                    {
-                        int start = std::atoi(r.c_str());
-                        if (start > 0)
-                        {
-                            excludes.emplace_back(start - 1, start - 1);
-                        }
-                    }
-                }
+                ranges = GetOutputRanges();
+            }
+            else
+            {
                 std::vector<std::pair<uint32_t, uint32_t>> srcRanges;
                 for (auto &rng : GetOutputRanges())
                 {
                     uint32_t end = rng.first + rng.second - 1;
                     srcRanges.emplace_back(rng.first, end);
                 }
+                // If this comes back empty everything is excluded, so nothing
+                // gets dimmed.
                 for (auto &a : subtractRanges(srcRanges, excludes))
                 {
                     ranges.emplace_back(a.first, a.second - a.first + 1);
                 }
             }
-            if (ranges.empty())
-            {
-                ranges = GetOutputRanges();
-            }
+            rangesValid = true;
         }
     }
 
@@ -518,15 +669,16 @@ public:
     }
 
     // Called by FPP when config/plugin.fpp-brightness changes; the base class
-    // has already updated settings[key]. calcRanges() rebuilds from
-    // BrightnessExcludeRanges whenever the cache is empty, so emptying it is the
-    // whole job - the next output frame picks the new ranges up.
+    // has already updated settings[key]. Saving the setting replaces whatever
+    // the exclude commands had set, and the next output frame picks it up.
     virtual void settingChanged(const std::string &key, const std::string &value) override
     {
         if (key == "BrightnessExcludeRanges")
         {
             LogInfo(VB_PLUGIN, "Brightness: exclude ranges changed, recalculating\n");
-            ranges.clear();
+            std::lock_guard<std::mutex> lock(rangesLock);
+            excludesLoaded = false;
+            rangesValid = false;
         }
     }
 
@@ -558,14 +710,22 @@ public:
     uint8_t map[256];
     std::vector<Command *> myCommands;
 
+    // rangesLock guards everything below it: the commands and settingChanged()
+    // run on other threads than modifyChannelData().
+    std::mutex rangesLock;
+    // 0-based inclusive channel pairs that brightness is not applied to.
+    std::vector<std::pair<uint32_t, uint32_t>> excludes;
+    bool excludesLoaded = false;
+    // (start, count) pairs brightness is applied to, built from excludes.
     std::vector<std::pair<std::uint32_t, std::uint32_t>> ranges;
+    bool rangesValid = false;
 };
 
 // Safe to dlclose() on unload: no threads, no timers, no CurlManager requests,
 // no epoll descriptors and no drogon client objects, so nothing outside this
 // library can still be holding a pointer into it once unregisterApis() and
 // shutdown() have returned. The routes go through registerPluginApi(), the
-// Events callback comes back in unregisterApis(), and the three commands are
+// Events callback comes back in unregisterApis(), and the seven commands are
 // withdrawn and deleted in shutdown().
 FPP_PLUGIN_SUPPORTS_UNLOAD()
 
