@@ -73,7 +73,7 @@ $(document).ready(function() {onLoadGetBrightness()});
 <div class="row"><div class="col-md"><input type="range" min="0" max="200" value="100" class="slider" id="brightnessSlider" oninput="sliderAdjusted()" ></div></div>
 <div class="row"><div class="col-auto">Exclude Ranges: </div><div class="col-auto"><? PrintSettingTextSaved("BrightnessExcludeRanges", 0, 0, 128, 64, "fpp-brightness"); ?></div></div>
 <div class="row"><div class="col-md">Exclude ranges are 1-based channel numbers separated by commas, e.g. 1-512,1000. Brightness is not applied to these channels.</div></div>
-<div class="row"><div class="col-md">They can also be changed while a show runs with the FPP commands "Brightness Exclude Set", "Brightness Exclude Add", "Brightness Exclude Remove" and "Brightness Exclude Reset". Those changes last until fppd restarts; Reset goes back to the ranges saved here.</div></div>
+<div class="row"><div class="col-md">They can also be changed with the FPP commands "Brightness Exclude Set", "Brightness Exclude Add" and "Brightness Exclude Remove", e.g. from a playlist. Those changes are saved here, so they last through an fppd restart. Reload this page to see the current list.</div></div>
 <div class="row"><div class="col-md">The Brightness plugin also provides a REST api and MQTT api for controlling the brightness.</div></div>
 <div class="row"><div class="col-md">For REST, use a URL like http://{ip}/api/plugin-apis/Brightness/100 to set the brightness to 100.</div></div>
 <div class="row"><div class="col-md">For MQTT, the sub-topic is "/Brightness" and the payload would be the brightness.</div></div>

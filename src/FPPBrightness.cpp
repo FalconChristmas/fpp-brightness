@@ -7,6 +7,9 @@
 #include <cstring>
 
 #include <unistd.h>
+#include <fcntl.h>
+#include <sys/file.h>
+#include <sys/stat.h>
 #include <termios.h>
 #include <chrono>
 #include <thread>
@@ -145,15 +148,13 @@ public:
         FPPBrightnessPlugin *plugin;
     };
 
-    // The exclude commands only change the running list. The saved
-    // BrightnessExcludeRanges setting stays the baseline: it is what fppd
-    // starts with, and Brightness Exclude Reset goes back to it.
+    // The exclude commands save to BrightnessExcludeRanges, the same setting
+    // the plugin page edits, so a change survives an fppd restart.
     enum class ExcludeOp
     {
         Set,
         Add,
-        Remove,
-        Reset
+        Remove
     };
     class ExcludeRangesCommand : public Command
     {
@@ -161,30 +162,29 @@ public:
         ExcludeRangesCommand(FPPBrightnessPlugin *p, const std::string &n, const std::string &descript, ExcludeOp o)
             : Command(n, descript), plugin(p), op(o)
         {
-            if (op != ExcludeOp::Reset)
-            {
-                // Optional so Set can be sent blank to clear every exclusion.
-                args.push_back(CommandArg("ranges", "string", "Channels (e.g. 1-512,1000)", op == ExcludeOp::Set).setDefaultValue(""));
-            }
+            // Optional so Set can be sent blank to clear every exclusion.
+            args.push_back(CommandArg("ranges", "string", "Channels (e.g. 1-512,1000)", op == ExcludeOp::Set).setDefaultValue(""));
         }
 
         virtual std::unique_ptr<Command::Result> run(const std::vector<std::string> &args) override
         {
             std::vector<std::pair<uint32_t, uint32_t>> parsed;
-            if (op != ExcludeOp::Reset)
+            std::string arg = args.empty() ? "" : args[0];
+            std::string bad;
+            if (!plugin->parseRanges(arg, parsed, bad))
             {
-                std::string arg = args.empty() ? "" : args[0];
-                std::string bad;
-                if (!plugin->parseRanges(arg, parsed, bad))
-                {
-                    return std::make_unique<Command::ErrorResult>("Invalid channel range: " + bad);
-                }
-                if (parsed.empty() && op != ExcludeOp::Set)
-                {
-                    return std::make_unique<Command::ErrorResult>("No channels given");
-                }
+                return std::make_unique<Command::ErrorResult>("Invalid channel range: " + bad);
             }
-            return std::make_unique<Command::Result>("Brightness exclude ranges: " + plugin->changeExcludes(op, parsed));
+            if (parsed.empty() && op != ExcludeOp::Set)
+            {
+                return std::make_unique<Command::ErrorResult>("No channels given");
+            }
+            std::string result;
+            if (!plugin->changeExcludes(op, parsed, result))
+            {
+                return std::make_unique<Command::ErrorResult>(result);
+            }
+            return std::make_unique<Command::Result>("Brightness exclude ranges: " + result);
         }
         FPPBrightnessPlugin *plugin;
         ExcludeOp op;
@@ -201,8 +201,6 @@ public:
                                                  "Stop applying brightness to these channels.", ExcludeOp::Add));
         addOwnedCommand(new ExcludeRangesCommand(this, "Brightness Exclude Remove",
                                                  "Apply brightness to these channels again.", ExcludeOp::Remove));
-        addOwnedCommand(new ExcludeRangesCommand(this, "Brightness Exclude Reset",
-                                                 "Go back to the exclude ranges saved on the plugin page.", ExcludeOp::Reset));
     }
 
     // These Command subclasses are declared here, so their vtables live in this
@@ -554,31 +552,126 @@ public:
         return s;
     }
 
-    std::string changeExcludes(ExcludeOp op, const std::vector<std::pair<uint32_t, uint32_t>> &r)
+    // Applies the change right away, then saves it. saveLock is held across
+    // both so two commands cannot save out of order, but rangesLock is dropped
+    // before the file write so output frames never wait on the SD card.
+    bool changeExcludes(ExcludeOp op, const std::vector<std::pair<uint32_t, uint32_t>> &r, std::string &result)
     {
-        std::lock_guard<std::mutex> lock(rangesLock);
-        loadExcludes();
-        switch (op)
+        std::lock_guard<std::mutex> saveGuard(saveLock);
+        std::string value;
         {
-        case ExcludeOp::Set:
-            excludes = mergeRanges(r);
-            break;
-        case ExcludeOp::Add:
-            excludes.insert(excludes.end(), r.begin(), r.end());
-            excludes = mergeRanges(excludes);
-            break;
-        case ExcludeOp::Remove:
-            excludes = subtractRanges(excludes, r);
-            break;
-        case ExcludeOp::Reset:
-            excludesLoaded = false;
+            std::lock_guard<std::mutex> lock(rangesLock);
             loadExcludes();
-            break;
+            switch (op)
+            {
+            case ExcludeOp::Set:
+                excludes = mergeRanges(r);
+                break;
+            case ExcludeOp::Add:
+                excludes.insert(excludes.end(), r.begin(), r.end());
+                excludes = mergeRanges(excludes);
+                break;
+            case ExcludeOp::Remove:
+                excludes = subtractRanges(excludes, r);
+                break;
+            }
+            rangesValid = false;
+            result = formatRanges(excludes);
+            if (!excludes.empty())
+            {
+                value = result;
+            }
         }
-        rangesValid = false;
-        std::string s = formatRanges(excludes);
-        LogInfo(VB_PLUGIN, "Brightness: exclude ranges now %s\n", s.c_str());
-        return s;
+        LogInfo(VB_PLUGIN, "Brightness: exclude ranges now %s\n", result.c_str());
+        // FPP's file monitor sees the write and calls settingChanged(), which
+        // reloads the same list from the file.
+        if (!saveSetting("BrightnessExcludeRanges", value))
+        {
+            result = "Exclude ranges set to " + result + " but could not be saved; they will be lost when fppd restarts";
+            return false;
+        }
+        return true;
+    }
+
+    // Writes key = "value" into config/plugin.fpp-brightness the way the
+    // plugin page's WriteSettingToFile() does: in place under an flock, other
+    // lines left as they are.
+    bool saveSetting(const std::string &key, const std::string &value)
+    {
+        std::string fname = FPP_DIR_CONFIG("/plugin.fpp-brightness");
+        bool existed = FileExists(fname);
+        int fd = open(fname.c_str(), O_RDWR | O_CREAT, 0664);
+        if (fd < 0)
+        {
+            LogErr(VB_PLUGIN, "Brightness: cannot open %s: %s\n", fname.c_str(), strerror(errno));
+            return false;
+        }
+        if (!existed)
+        {
+            // fppd runs as root; give the new file the config directory's owner
+            // so the plugin page can still write it.
+            struct stat st;
+            if (stat(FPP_DIR_CONFIG("").c_str(), &st) == 0 && fchown(fd, st.st_uid, st.st_gid) != 0)
+            {
+                LogWarn(VB_PLUGIN, "Brightness: cannot chown %s: %s\n", fname.c_str(), strerror(errno));
+            }
+        }
+        flock(fd, LOCK_EX);
+
+        std::string contents;
+        char buf[4096];
+        ssize_t n;
+        while ((n = read(fd, buf, sizeof(buf))) > 0)
+        {
+            contents.append(buf, n);
+        }
+
+        std::string line = key + " = \"" + value + "\"";
+        std::string out;
+        bool found = false;
+        std::istringstream in(contents);
+        std::string l;
+        while (std::getline(in, l))
+        {
+            size_t eq = l.find('=');
+            std::string k = eq == std::string::npos ? "" : l.substr(0, eq);
+            k.erase(std::remove_if(k.begin(), k.end(), ::isspace), k.end());
+            if (k == key)
+            {
+                if (found)
+                {
+                    continue;
+                }
+                l = line;
+                found = true;
+            }
+            out += l + "\n";
+        }
+        if (!found)
+        {
+            out += line + "\n";
+        }
+
+        bool ok = lseek(fd, 0, SEEK_SET) == 0 && ftruncate(fd, 0) == 0;
+        for (size_t off = 0; ok && off < out.size();)
+        {
+            ssize_t w = write(fd, out.data() + off, out.size() - off);
+            if (w <= 0)
+            {
+                ok = false;
+            }
+            else
+            {
+                off += w;
+            }
+        }
+        if (!ok)
+        {
+            LogErr(VB_PLUGIN, "Brightness: cannot write %s: %s\n", fname.c_str(), strerror(errno));
+        }
+        flock(fd, LOCK_UN);
+        close(fd);
+        return ok;
     }
 
     // Caller holds rangesLock.
@@ -669,8 +762,9 @@ public:
     }
 
     // Called by FPP when config/plugin.fpp-brightness changes; the base class
-    // has already updated settings[key]. Saving the setting replaces whatever
-    // the exclude commands had set, and the next output frame picks it up.
+    // has already updated settings[key]. That happens both when the plugin page
+    // saves and after an exclude command saves; the next output frame picks
+    // the list up.
     virtual void settingChanged(const std::string &key, const std::string &value) override
     {
         if (key == "BrightnessExcludeRanges")
@@ -710,6 +804,8 @@ public:
     uint8_t map[256];
     std::vector<Command *> myCommands;
 
+    // Held by the exclude commands across change and save.
+    std::mutex saveLock;
     // rangesLock guards everything below it: the commands and settingChanged()
     // run on other threads than modifyChannelData().
     std::mutex rangesLock;
@@ -725,7 +821,7 @@ public:
 // no epoll descriptors and no drogon client objects, so nothing outside this
 // library can still be holding a pointer into it once unregisterApis() and
 // shutdown() have returned. The routes go through registerPluginApi(), the
-// Events callback comes back in unregisterApis(), and the seven commands are
+// Events callback comes back in unregisterApis(), and the six commands are
 // withdrawn and deleted in shutdown().
 FPP_PLUGIN_SUPPORTS_UNLOAD()
 
