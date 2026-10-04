@@ -4,3 +4,18 @@ Support for dynamically changing the brightness of channel data during a running
 
 
 
+## FPP commands
+
+| Command | Arguments | What it does |
+| --- | --- | --- |
+| `Brightness` | brightness 0-200 | Set the brightness (100 = unchanged) |
+| `Brightness Adjust` | -100 to 100 | Raise or lower the brightness by that much |
+| `Brightness Fade` | brightness, seconds | Fade to a brightness over a duration |
+| `Brightness Exclude Set` | channels | Replace the excluded channels. Blank clears the list |
+| `Brightness Exclude Add` | channels | Stop applying brightness to these channels |
+| `Brightness Exclude Remove` | channels | Apply brightness to these channels again |
+
+Channels are 1-based and comma separated, for example `1-512,1000,2000-2099`.
+
+The exclude commands take effect on the next frame and save the new list as the
+plugin page's Exclude Ranges setting, so it survives an fppd restart.

@@ -7,10 +7,14 @@
 #include <cstring>
 
 #include <unistd.h>
+#include <fcntl.h>
+#include <sys/file.h>
+#include <sys/stat.h>
 #include <termios.h>
 #include <chrono>
 #include <thread>
 #include <cmath>
+#include <mutex>
 
 #include "fpphttp.h"
 #include "common.h"
@@ -144,11 +148,59 @@ public:
         FPPBrightnessPlugin *plugin;
     };
 
+    // The exclude commands save to BrightnessExcludeRanges, the same setting
+    // the plugin page edits, so a change survives an fppd restart.
+    enum class ExcludeOp
+    {
+        Set,
+        Add,
+        Remove
+    };
+    class ExcludeRangesCommand : public Command
+    {
+    public:
+        ExcludeRangesCommand(FPPBrightnessPlugin *p, const std::string &n, const std::string &descript, ExcludeOp o)
+            : Command(n, descript), plugin(p), op(o)
+        {
+            // Optional so Set can be sent blank to clear every exclusion.
+            args.push_back(CommandArg("ranges", "string", "Channels (e.g. 1-512,1000)", op == ExcludeOp::Set).setDefaultValue(""));
+        }
+
+        virtual std::unique_ptr<Command::Result> run(const std::vector<std::string> &args) override
+        {
+            std::vector<std::pair<uint32_t, uint32_t>> parsed;
+            std::string arg = args.empty() ? "" : args[0];
+            std::string bad;
+            if (!plugin->parseRanges(arg, parsed, bad))
+            {
+                return std::make_unique<Command::ErrorResult>("Invalid channel range: " + bad);
+            }
+            if (parsed.empty() && op != ExcludeOp::Set)
+            {
+                return std::make_unique<Command::ErrorResult>("No channels given");
+            }
+            std::string result;
+            if (!plugin->changeExcludes(op, parsed, result))
+            {
+                return std::make_unique<Command::ErrorResult>(result);
+            }
+            return std::make_unique<Command::Result>("Brightness exclude ranges: " + result);
+        }
+        FPPBrightnessPlugin *plugin;
+        ExcludeOp op;
+    };
+
     void registerCommand()
     {
         addOwnedCommand(new SetBrightnessCommand(this));
         addOwnedCommand(new AdjustBrightnessCommand(this));
         addOwnedCommand(new FadeBrightnessCommand(this));
+        addOwnedCommand(new ExcludeRangesCommand(this, "Brightness Exclude Set",
+                                                 "Replace the channels brightness leaves alone. Blank clears the list.", ExcludeOp::Set));
+        addOwnedCommand(new ExcludeRangesCommand(this, "Brightness Exclude Add",
+                                                 "Stop applying brightness to these channels.", ExcludeOp::Add));
+        addOwnedCommand(new ExcludeRangesCommand(this, "Brightness Exclude Remove",
+                                                 "Apply brightness to these channels again.", ExcludeOp::Remove));
     }
 
     // These Command subclasses are declared here, so their vtables live in this
@@ -336,6 +388,7 @@ public:
                 setBrightness(newb, false);
             }
         }
+        std::lock_guard<std::mutex> lock(rangesLock);
         calcRanges();
         for (auto &a : ranges)
         {
@@ -422,58 +475,249 @@ public:
         return result;
     }
 
+    // Parses "1-100, 250, 300-400" (1-based, inclusive) into 0-based
+    // inclusive pairs. Returns false and the offending piece if one is not a
+    // channel or a low-high range.
+    bool parseRanges(const std::string &str, std::vector<std::pair<uint32_t, uint32_t>> &out, std::string &bad)
+    {
+        out.clear();
+        for (auto r : split(str, ','))
+        {
+            r.erase(std::remove_if(r.begin(), r.end(), ::isspace), r.end());
+            if (r.empty())
+            {
+                continue;
+            }
+            size_t idx = r.find('-');
+            std::string fp = idx == std::string::npos ? r : r.substr(0, idx);
+            std::string ep = idx == std::string::npos ? r : r.substr(idx + 1);
+            if (fp.empty() || ep.empty() ||
+                fp.find_first_not_of("0123456789") != std::string::npos ||
+                ep.find_first_not_of("0123456789") != std::string::npos)
+            {
+                bad = r;
+                return false;
+            }
+            unsigned long st = std::strtoul(fp.c_str(), nullptr, 10);
+            unsigned long en = std::strtoul(ep.c_str(), nullptr, 10);
+            if (st == 0 || en < st || en > UINT32_MAX)
+            {
+                bad = r;
+                return false;
+            }
+            out.emplace_back(st - 1, en - 1);
+        }
+        return true;
+    }
+
+    // Sorts and joins overlapping or touching ranges so Add can be repeated
+    // without the list growing.
+    static std::vector<std::pair<uint32_t, uint32_t>> mergeRanges(std::vector<std::pair<uint32_t, uint32_t>> r)
+    {
+        std::sort(r.begin(), r.end());
+        std::vector<std::pair<uint32_t, uint32_t>> result;
+        for (auto &a : r)
+        {
+            if (!result.empty() && (uint64_t)a.first <= (uint64_t)result.back().second + 1)
+            {
+                result.back().second = std::max(result.back().second, a.second);
+            }
+            else
+            {
+                result.push_back(a);
+            }
+        }
+        return result;
+    }
+
+    static std::string formatRanges(const std::vector<std::pair<uint32_t, uint32_t>> &r)
+    {
+        if (r.empty())
+        {
+            return "(none)";
+        }
+        std::string s;
+        for (auto &a : r)
+        {
+            if (!s.empty())
+            {
+                s += ",";
+            }
+            s += std::to_string((uint64_t)a.first + 1);
+            if (a.second != a.first)
+            {
+                s += "-" + std::to_string((uint64_t)a.second + 1);
+            }
+        }
+        return s;
+    }
+
+    // Applies the change right away, then saves it. saveLock is held across
+    // both so two commands cannot save out of order, but rangesLock is dropped
+    // before the file write so output frames never wait on the SD card.
+    bool changeExcludes(ExcludeOp op, const std::vector<std::pair<uint32_t, uint32_t>> &r, std::string &result)
+    {
+        std::lock_guard<std::mutex> saveGuard(saveLock);
+        std::string value;
+        {
+            std::lock_guard<std::mutex> lock(rangesLock);
+            loadExcludes();
+            switch (op)
+            {
+            case ExcludeOp::Set:
+                excludes = mergeRanges(r);
+                break;
+            case ExcludeOp::Add:
+                excludes.insert(excludes.end(), r.begin(), r.end());
+                excludes = mergeRanges(excludes);
+                break;
+            case ExcludeOp::Remove:
+                excludes = subtractRanges(excludes, r);
+                break;
+            }
+            rangesValid = false;
+            result = formatRanges(excludes);
+            if (!excludes.empty())
+            {
+                value = result;
+            }
+        }
+        LogInfo(VB_PLUGIN, "Brightness: exclude ranges now %s\n", result.c_str());
+        // FPP's file monitor sees the write and calls settingChanged(), which
+        // reloads the same list from the file.
+        if (!saveSetting("BrightnessExcludeRanges", value))
+        {
+            result = "Exclude ranges set to " + result + " but could not be saved; they will be lost when fppd restarts";
+            return false;
+        }
+        return true;
+    }
+
+    // Writes key = "value" into config/plugin.fpp-brightness the way the
+    // plugin page's WriteSettingToFile() does: in place under an flock, other
+    // lines left as they are.
+    bool saveSetting(const std::string &key, const std::string &value)
+    {
+        std::string fname = FPP_DIR_CONFIG("/plugin.fpp-brightness");
+        bool existed = FileExists(fname);
+        int fd = open(fname.c_str(), O_RDWR | O_CREAT, 0664);
+        if (fd < 0)
+        {
+            LogErr(VB_PLUGIN, "Brightness: cannot open %s: %s\n", fname.c_str(), strerror(errno));
+            return false;
+        }
+        if (!existed)
+        {
+            // fppd runs as root; give the new file the config directory's owner
+            // so the plugin page can still write it.
+            struct stat st;
+            if (stat(FPP_DIR_CONFIG("").c_str(), &st) == 0 && fchown(fd, st.st_uid, st.st_gid) != 0)
+            {
+                LogWarn(VB_PLUGIN, "Brightness: cannot chown %s: %s\n", fname.c_str(), strerror(errno));
+            }
+        }
+        flock(fd, LOCK_EX);
+
+        std::string contents;
+        char buf[4096];
+        ssize_t n;
+        while ((n = read(fd, buf, sizeof(buf))) > 0)
+        {
+            contents.append(buf, n);
+        }
+
+        std::string line = key + " = \"" + value + "\"";
+        std::string out;
+        bool found = false;
+        std::istringstream in(contents);
+        std::string l;
+        while (std::getline(in, l))
+        {
+            size_t eq = l.find('=');
+            std::string k = eq == std::string::npos ? "" : l.substr(0, eq);
+            k.erase(std::remove_if(k.begin(), k.end(), ::isspace), k.end());
+            if (k == key)
+            {
+                if (found)
+                {
+                    continue;
+                }
+                l = line;
+                found = true;
+            }
+            out += l + "\n";
+        }
+        if (!found)
+        {
+            out += line + "\n";
+        }
+
+        bool ok = lseek(fd, 0, SEEK_SET) == 0 && ftruncate(fd, 0) == 0;
+        for (size_t off = 0; ok && off < out.size();)
+        {
+            ssize_t w = write(fd, out.data() + off, out.size() - off);
+            if (w <= 0)
+            {
+                ok = false;
+            }
+            else
+            {
+                off += w;
+            }
+        }
+        if (!ok)
+        {
+            LogErr(VB_PLUGIN, "Brightness: cannot write %s: %s\n", fname.c_str(), strerror(errno));
+        }
+        flock(fd, LOCK_UN);
+        close(fd);
+        return ok;
+    }
+
+    // Caller holds rangesLock.
+    void loadExcludes()
+    {
+        if (!excludesLoaded)
+        {
+            std::vector<std::pair<uint32_t, uint32_t>> parsed;
+            std::string bad;
+            if (!parseRanges(settings["BrightnessExcludeRanges"], parsed, bad))
+            {
+                // Keep what did parse rather than dropping the whole setting.
+                LogWarn(VB_PLUGIN, "Brightness: ignoring invalid exclude range '%s'\n", bad.c_str());
+            }
+            excludes = mergeRanges(parsed);
+            excludesLoaded = true;
+        }
+    }
+
+    // Caller holds rangesLock.
     void calcRanges()
     {
-        if (ranges.empty())
+        if (!rangesValid)
         {
-            std::vector<std::pair<uint32_t, uint32_t>> excludes;
-
-            std::string ex = settings["BrightnessExcludeRanges"];
-            if (ex != "")
+            loadExcludes();
+            ranges.clear();
+            if (excludes.empty())
             {
-                std::vector<std::string> exranges = split(ex, ',');
-                for (auto &r : exranges)
-                {
-                    size_t idx = r.find('-');
-                    if (idx != std::string::npos)
-                    {
-                        std::string fp = r.substr(0, idx);
-                        std::string ep = r.substr(idx + 1);
-                        int st = std::atoi(fp.c_str());
-                        if (st > 0)
-                        {
-                            uint32_t start = st - 1;
-                            int end = std::atoi(ep.c_str()) - 1;
-                            if (end > 0 && end > start)
-                            {
-                                excludes.emplace_back(start, end);
-                            }
-                        }
-                    }
-                    else
-                    {
-                        int start = std::atoi(r.c_str());
-                        if (start > 0)
-                        {
-                            excludes.emplace_back(start - 1, start - 1);
-                        }
-                    }
-                }
+                ranges = GetOutputRanges();
+            }
+            else
+            {
                 std::vector<std::pair<uint32_t, uint32_t>> srcRanges;
                 for (auto &rng : GetOutputRanges())
                 {
                     uint32_t end = rng.first + rng.second - 1;
                     srcRanges.emplace_back(rng.first, end);
                 }
+                // If this comes back empty everything is excluded, so nothing
+                // gets dimmed.
                 for (auto &a : subtractRanges(srcRanges, excludes))
                 {
                     ranges.emplace_back(a.first, a.second - a.first + 1);
                 }
             }
-            if (ranges.empty())
-            {
-                ranges = GetOutputRanges();
-            }
+            rangesValid = true;
         }
     }
 
@@ -518,15 +762,17 @@ public:
     }
 
     // Called by FPP when config/plugin.fpp-brightness changes; the base class
-    // has already updated settings[key]. calcRanges() rebuilds from
-    // BrightnessExcludeRanges whenever the cache is empty, so emptying it is the
-    // whole job - the next output frame picks the new ranges up.
+    // has already updated settings[key]. That happens both when the plugin page
+    // saves and after an exclude command saves; the next output frame picks
+    // the list up.
     virtual void settingChanged(const std::string &key, const std::string &value) override
     {
         if (key == "BrightnessExcludeRanges")
         {
             LogInfo(VB_PLUGIN, "Brightness: exclude ranges changed, recalculating\n");
-            ranges.clear();
+            std::lock_guard<std::mutex> lock(rangesLock);
+            excludesLoaded = false;
+            rangesValid = false;
         }
     }
 
@@ -558,14 +804,24 @@ public:
     uint8_t map[256];
     std::vector<Command *> myCommands;
 
+    // Held by the exclude commands across change and save.
+    std::mutex saveLock;
+    // rangesLock guards everything below it: the commands and settingChanged()
+    // run on other threads than modifyChannelData().
+    std::mutex rangesLock;
+    // 0-based inclusive channel pairs that brightness is not applied to.
+    std::vector<std::pair<uint32_t, uint32_t>> excludes;
+    bool excludesLoaded = false;
+    // (start, count) pairs brightness is applied to, built from excludes.
     std::vector<std::pair<std::uint32_t, std::uint32_t>> ranges;
+    bool rangesValid = false;
 };
 
 // Safe to dlclose() on unload: no threads, no timers, no CurlManager requests,
 // no epoll descriptors and no drogon client objects, so nothing outside this
 // library can still be holding a pointer into it once unregisterApis() and
 // shutdown() have returned. The routes go through registerPluginApi(), the
-// Events callback comes back in unregisterApis(), and the three commands are
+// Events callback comes back in unregisterApis(), and the six commands are
 // withdrawn and deleted in shutdown().
 FPP_PLUGIN_SUPPORTS_UNLOAD()
 
